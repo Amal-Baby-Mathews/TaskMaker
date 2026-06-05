@@ -1,0 +1,28 @@
+# Local configuration files
+config.json
+
+# Local ChromaDB directory
+chroma_db/
+
+# Python Virtual Environments
+.venv/
+venv/
+ENV/
+
+# Python caches and compiles
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Chainlit/Streamlit local tracking files
+.chainlit/
+.files/
+.streamlit/
+
+# Temporary scratch scripts
+scratch_*.py

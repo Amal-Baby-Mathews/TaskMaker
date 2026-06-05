@@ -1,0 +1,5 @@
+{
+  "llm_base_url": "http://localhost:9999/v1",
+  "llm_model": "your-openai-compatible-model-name",
+  "llm_api_key": "sk-no-key-required"
+}
