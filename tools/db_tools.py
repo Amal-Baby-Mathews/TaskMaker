@@ -2,6 +2,8 @@ import os
 import chromadb
 from typing import Optional, List, Dict, Any
 
+from tools.logger import log_tool
+
 # Resolve database path relative to this workspace
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "chroma_db")
 
@@ -9,7 +11,8 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 client = chromadb.PersistentClient(path=DB_PATH)
 collection = client.get_or_create_collection(name="TaskMaker_plans")
 
-def add_plan(plan_id: str, title: str, description: str, due_time: str, status: str = "pending") -> str:
+@log_tool
+def add_plan(plan_id: str, title: str, description: str, due_time: str, status: str = "pending", subtasks: Optional[str] = None) -> str:
     """
     Adds a new plan to ChromaDB. If the plan_id already exists, resolves the collision
     by incrementing the numeric suffix, and returns the final plan_id used.
@@ -44,6 +47,7 @@ def add_plan(plan_id: str, title: str, description: str, due_time: str, status: 
     desc_str = description or ""
     due_str = due_time or ""
     status_str = status or "pending"
+    subtasks_str = subtasks or ""
 
     doc = f"Plan ID: {plan_id}\nTitle: {title_str}\nDescription: {desc_str}\nDue Time: {due_str}\nStatus: {status_str}"
     metadata = {
@@ -51,7 +55,8 @@ def add_plan(plan_id: str, title: str, description: str, due_time: str, status: 
         "title": title_str,
         "description": desc_str,
         "due_time": due_str,
-        "status": status_str
+        "status": status_str,
+        "subtasks": subtasks_str
     }
     collection.add(
         ids=[plan_id],
@@ -60,23 +65,60 @@ def add_plan(plan_id: str, title: str, description: str, due_time: str, status: 
     )
     return plan_id
 
+@log_tool
 def update_plan(
     plan_id: str, 
     title: Optional[str] = None, 
     description: Optional[str] = None, 
     due_time: Optional[str] = None, 
-    status: Optional[str] = None
+    status: Optional[str] = None,
+    subtasks: Optional[str] = None
 ) -> None:
     """
     Updates an existing plan in ChromaDB.
     """
-    existing = collection.get(ids=[plan_id])
-    if not existing or not existing.get("metadatas") or len(existing["metadatas"]) == 0:
-        raise ValueError(f"Plan with ID {plan_id} not found.")
-    
+    existing = None
+    try:
+        existing = collection.get(ids=[plan_id])
+    except Exception:
+        pass
+
+    if not existing or not existing.get("ids") or len(existing["ids"]) == 0:
+        query_term = plan_id
+        if plan_id.startswith("query:"):
+            query_term = plan_id[len("query:"):]
+        
+        query_term = query_term.lower()
+        all_plans = get_all_plans()
+        matched_plan = None
+        
+        # Try exact title match first
+        for p in all_plans:
+            if p.get("title", "").lower() == query_term:
+                matched_plan = p
+                break
+        
+        # Try substring title match
+        if not matched_plan:
+            for p in all_plans:
+                if query_term in p.get("title", "").lower():
+                    matched_plan = p
+                    break
+                    
+        # Try plan_id substring match
+        if not matched_plan:
+            for p in all_plans:
+                if query_term in p.get("plan_id", "").lower():
+                    matched_plan = p
+                    break
+
+        if not matched_plan:
+            raise ValueError(f"Plan with ID/title '{plan_id}' not found.")
+            
+        plan_id = matched_plan["plan_id"]
+        existing = collection.get(ids=[plan_id])
+        
     current_metadata = existing["metadatas"][0]
-    
-    # Merge updates and ensure safe string conversion (no None values in metadata)
     new_metadata = dict(current_metadata)
     if title is not None:
         new_metadata["title"] = title or ""
@@ -86,6 +128,8 @@ def update_plan(
         new_metadata["due_time"] = due_time or ""
     if status is not None:
         new_metadata["status"] = status or "pending"
+    if subtasks is not None:
+        new_metadata["subtasks"] = subtasks or ""
         
     doc = f"Plan ID: {plan_id}\nTitle: {new_metadata['title']}\nDescription: {new_metadata['description']}\nDue Time: {new_metadata['due_time']}\nStatus: {new_metadata['status']}"
     
@@ -95,6 +139,7 @@ def update_plan(
         metadatas=[new_metadata]
     )
 
+@log_tool
 def delete_plan(plan_id: str) -> List[str]:
     """
     Deletes a plan or multiple plans from ChromaDB.
@@ -142,6 +187,7 @@ def delete_plan(plan_id: str) -> List[str]:
     collection.delete(ids=[plan_id])
     return [plan_id]
 
+@log_tool
 def create_repeating_plan(
     plan_id: str,
     title: str,
@@ -193,6 +239,7 @@ def create_repeating_plan(
         
     return created_ids
 
+@log_tool
 def query_plans(query_text: str, limit: int = 5) -> List[Dict[str, Any]]:
     """
     Queries plans in ChromaDB using vector similarity search.
@@ -213,6 +260,7 @@ def query_plans(query_text: str, limit: int = 5) -> List[Dict[str, Any]]:
                 plans.append(metadata)
     return plans
 
+@log_tool
 def get_all_plans() -> List[Dict[str, Any]]:
     """
     Retrieves all plans stored in ChromaDB.
@@ -228,6 +276,7 @@ def get_all_plans() -> List[Dict[str, Any]]:
 # Dedicated rules collection and rules CRUD helpers
 rules_collection = client.get_or_create_collection(name="system_rules")
 
+@log_tool
 def add_rule(rule_id: str, content: str) -> str:
     """
     Adds a new rule to ChromaDB. If rule_id collision occurs, resolves collision
@@ -269,6 +318,7 @@ def add_rule(rule_id: str, content: str) -> str:
     )
     return rule_id
 
+@log_tool
 def delete_rule(rule_id: str) -> List[str]:
     """
     Deletes a rule or all rules from ChromaDB.
@@ -286,6 +336,7 @@ def delete_rule(rule_id: str) -> List[str]:
     rules_collection.delete(ids=[rule_id])
     return [rule_id]
 
+@log_tool
 def get_all_rules() -> List[Dict[str, Any]]:
     """
     Retrieves all rules stored in ChromaDB.
@@ -298,6 +349,7 @@ def get_all_rules() -> List[Dict[str, Any]]:
                 rules.append(metadata)
     return rules
 
+@log_tool
 def query_rules(query_text: str, limit: int = 5) -> List[Dict[str, Any]]:
     """
     Queries rules in ChromaDB using vector similarity search.

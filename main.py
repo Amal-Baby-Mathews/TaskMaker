@@ -16,6 +16,9 @@ from langchain_core.messages import HumanMessage, AIMessage
 from graph import app
 from tools.db_tools import get_all_plans
 from tools.config_loader import load_config
+from tools.logger import reset_log
+
+reset_log()
 
 console = Console()
 

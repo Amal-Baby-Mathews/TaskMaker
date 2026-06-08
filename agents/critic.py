@@ -10,6 +10,7 @@ class TaskItemSchema(BaseModel):
     status: Optional[str] = Field(None, description="Status: 'pending', 'in_progress', or 'completed'")
     frequency: Optional[str] = Field(None, description="Frequency of repeat: 'daily' or 'weekly'")
     repeat_count: Optional[int] = Field(None, description="Number of times to repeat the task")
+    subtasks: Optional[Any] = Field(None, description="Optional subtasks list or serialized JSON string")
 
     @model_validator(mode="after")
     def validate_action_fields(self) -> 'TaskItemSchema':
@@ -34,8 +35,8 @@ class TaskItemSchema(BaseModel):
                 self.repeat_count = 7
         elif action == "update":
             # At least one field should be updated
-            if not any([self.title, self.description, self.due_time, self.status]):
-                raise ValueError("At least one update field (title, description, due_time, status) must be provided for 'update' action")
+            if not any([self.title, self.description, self.due_time, self.status, self.subtasks]):
+                raise ValueError("At least one update field (title, description, due_time, status, subtasks) must be provided for 'update' action")
         elif action == "delete":
             pass # Only plan_id is required
         else:
@@ -45,13 +46,61 @@ class TaskItemSchema(BaseModel):
 class TaskPayloadSchema(BaseModel):
     tasks: List[TaskItemSchema] = Field(description="List of task items to execute")
 
+def sanitize_subtasks(subtasks: Any) -> Any:
+    if not subtasks:
+        return subtasks
+    
+    # If it is a JSON string, try to parse it
+    if isinstance(subtasks, str):
+        try:
+            import json
+            parsed = json.loads(subtasks)
+            if isinstance(parsed, list):
+                subtasks = parsed
+        except Exception:
+            return subtasks
+            
+    if isinstance(subtasks, list):
+        sanitized = []
+        for item in subtasks:
+            if isinstance(item, dict):
+                item_copy = dict(item)
+                completed_val = item_copy.get("completed")
+                if isinstance(completed_val, str):
+                    lower_val = completed_val.lower().strip()
+                    if lower_val in ("true", "1", "yes", "completed"):
+                        item_copy["completed"] = True
+                    elif lower_val in ("false", "0", "no", "pending"):
+                        item_copy["completed"] = False
+                elif completed_val is None:
+                    item_copy["completed"] = False
+                sanitized.append(item_copy)
+            else:
+                sanitized.append(item)
+        return sanitized
+    return subtasks
+
 def run_critic(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     Validates task_payload schema containing a list of tasks.
     If valid, marks validated=True and routes to executor.
     If invalid, sets errors info and routes to executor for correction.
     """
-    task_payload = state.get("task_payload", {}) or {}
+    # Create a shallow copy of task_payload to avoid side effects
+    task_payload = dict(state.get("task_payload", {}) or {})
+    
+    # Sanitize subtasks before validation
+    if "tasks" in task_payload and isinstance(task_payload["tasks"], list):
+        sanitized_tasks = []
+        for task in task_payload["tasks"]:
+            if isinstance(task, dict):
+                task_copy = dict(task)
+                if "subtasks" in task_copy:
+                    task_copy["subtasks"] = sanitize_subtasks(task_copy["subtasks"])
+                sanitized_tasks.append(task_copy)
+            else:
+                sanitized_tasks.append(task)
+        task_payload["tasks"] = sanitized_tasks
     
     try:
         # Validate schema

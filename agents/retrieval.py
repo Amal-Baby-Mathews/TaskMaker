@@ -26,9 +26,54 @@ def run_retriever(state: Dict[str, Any]) -> Dict[str, Any]:
             last_user_query = msg.content
             break
             
-    # Retrieve matching plans
-    retrieved_plans = query_plans(last_user_query, limit=5)
+    # Determine if this is a mutation request (update/delete/refinement)
+    import json
+    query_lower = last_user_query.lower()
+    mutation_words = ["set", "update", "change", "modify", "edit", "delete", "remove", "cancel", "postpone", "reschedule", "alter", "status", "complete", "finish", "mark", "tick", "uncheck", "refine", "detail", "more steps", "more detailed", "add a step", "add steps"]
+    is_mutation_request = any(word in query_lower for word in mutation_words)
     
+    # Use LLM to extract target plan name / keywords if it's a mutation/refinement
+    search_query = last_user_query
+    if is_mutation_request:
+        try:
+            llm_extract = ChatOpenAI(
+                base_url=LLM_BASE_URL,
+                api_key=LLM_API_KEY,
+                model=LLM_MODEL,
+                temperature=0
+            )
+            extract_prompt = (
+                "You are an assistant that extracts the target plan title, keywords, or ID that the user is referring to "
+                "in their latest message in the conversation history.\n"
+                "Return ONLY the plain text keywords or ID (e.g., 'Build a Zoo' or 'plan_001') to search the database. "
+                "If they are referring to all tasks, return 'all'. If they are not referring to any specific existing plan, "
+                "just return the latest message content."
+            )
+            extract_messages = [SystemMessage(content=extract_prompt)]
+            for msg in messages[-5:]:
+                extract_messages.append(msg)
+            
+            res = llm_extract.invoke(extract_messages).content.strip()
+            if res:
+                search_query = res
+        except Exception:
+            pass
+
+    # Retrieve matching plans
+    if search_query.lower() == "all":
+        from tools.db_tools import get_all_plans
+        retrieved_plans = get_all_plans()
+    else:
+        retrieved_plans = query_plans(search_query, limit=5)
+    
+    if is_mutation_request:
+        new_messages = list(messages)
+        new_messages.append(AIMessage(content=f"[System Retrieved] Matching tasks from database:\n{json.dumps(retrieved_plans)}"))
+        return {
+            "messages": new_messages,
+            "next_agent": "supervisor"
+        }
+        
     # Generate RAG response
     llm = ChatOpenAI(
         base_url=LLM_BASE_URL,

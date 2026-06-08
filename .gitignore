@@ -26,3 +26,28 @@ Thumbs.db
 
 # Temporary scratch scripts
 scratch_*.py
+
+# Node/Vite downloaded modules and builds
+node_modules/
+dist/
+ui/node_modules/
+ui/dist/
+
+# Server log files
+*.log
+server.log
+
+# Media files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.webp
+*.ico
+
+# Environment variables
+.env
+.env.local
+.env.*
+

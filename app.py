@@ -16,6 +16,9 @@ from tools.db_tools import (
     save_chat_history, load_chat_history, clear_chat_history
 )
 from tools.config_loader import load_config
+from tools.logger import reset_log
+
+reset_log()
 
 # Set up page configurations
 st.set_page_config(

@@ -32,6 +32,8 @@ def run_responder(state: Dict[str, Any]) -> Dict[str, Any]:
         "Your task is to reply to the user or summarize the recent database actions in a polite, helpful way.\n"
         "If a database operation was executed (indicated by '[System Executed]' in the history), "
         "translate it into a user-friendly confirmation (e.g. 'I have created that task for you.').\n"
+        "CRITICAL: If the database operation failed (indicated by '[System Executed Error]' in the history), "
+        "you MUST inform the user of the failure and explain what failed (e.g. 'I tried to update the task but could not find a match.'). Do NOT pretend it succeeded.\n"
         "If the user is saying hello, greeting, or chatting, respond warmly and ask how you can help."
     )
     if system_rules:

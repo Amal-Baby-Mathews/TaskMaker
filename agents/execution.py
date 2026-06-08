@@ -36,24 +36,48 @@ def run_executor(state: Dict[str, Any]) -> Dict[str, Any]:
             status = task.get("status", "pending")
             
             try:
+                subtasks_val = task.get("subtasks")
+                if subtasks_val and not isinstance(subtasks_val, str):
+                    subtasks_val = json.dumps(subtasks_val)
+
                 if action == "create":
                     actual_id = add_plan(
                         plan_id=plan_id,
                         title=title,
                         description=description,
                         due_time=due_time,
-                        status=status
+                        status=status,
+                        subtasks=subtasks_val
                     )
-                    executed_messages.append(f"[System Executed] Created plan '{title}' (ID: {actual_id}) due at {due_time}.")
+                    msg = f"[System Executed] Created plan '{title}' (ID: {actual_id}) due at {due_time}."
+                    if subtasks_val:
+                        try:
+                            st_list = json.loads(subtasks_val)
+                            st_desc = ", ".join([f"'{s.get('title')}'" for s in st_list if s.get('title')])
+                            if st_desc:
+                                msg += f" Subtasks: {st_desc}"
+                        except Exception:
+                            pass
+                    executed_messages.append(msg)
                 elif action == "update":
                     update_plan(
                         plan_id=plan_id,
                         title=title,
                         description=description,
                         due_time=due_time,
-                        status=status
+                        status=status,
+                        subtasks=subtasks_val
                     )
-                    executed_messages.append(f"[System Executed] Updated plan (ID: {plan_id}).")
+                    msg = f"[System Executed] Updated plan (ID: {plan_id})."
+                    if subtasks_val:
+                        try:
+                            st_list = json.loads(subtasks_val)
+                            st_desc = ", ".join([f"'{s.get('title')}'" for s in st_list if s.get('title')])
+                            if st_desc:
+                                msg += f" Subtasks: {st_desc}"
+                        except Exception:
+                            pass
+                    executed_messages.append(msg)
                 elif action == "delete":
                     deleted_ids = delete_plan(plan_id=plan_id)
                     if deleted_ids:
@@ -89,6 +113,17 @@ def run_executor(state: Dict[str, Any]) -> Dict[str, Any]:
         }
         
     # Extract or fix payload
+    attempts = task_payload.get("attempts", 0) + 1
+    if attempts > 3:
+        error_msg = f"[System Executed Error] Failed to validate task parameters after multiple attempts: {task_payload.get('errors', 'unknown validation error')}"
+        new_messages = list(messages)
+        new_messages.append(AIMessage(content=error_msg))
+        return {
+            "messages": new_messages,
+            "task_payload": {},
+            "next_agent": "supervisor"
+        }
+
     llm = ChatOpenAI(
         base_url=LLM_BASE_URL,
         api_key=LLM_API_KEY,
@@ -130,9 +165,9 @@ def run_executor(state: Dict[str, Any]) -> Dict[str, Any]:
         "}\n\n"
         "Instructions:\n"
         "1. For 'create': Generate a short, unique plan_id (e.g. plan_001, plan_002) if none is provided. Ensure they are distinct for each task.\n"
-        "2. For 'update': Identify the plan_id from context. Only include fields that the update explicitly targets.\n"
-        "3. For 'delete': Identify the plan_id from context. Set action to 'delete'.\n"
-        "   - If deleting a specific plan, provide its plan_id.\n"
+        "2. For 'update': Identify the target plan from the retrieved tasks (indicated by '[System Retrieved]' in the conversation history). Inspect the retrieved tasks list, find the one that best matches the user's intent/description (e.g. title, description, time), and use its exact 'plan_id'. If no '[System Retrieved]' message or matching plan is found, fall back to setting the 'plan_id' to the title or a 'query:<title>' search term.\n"
+        "3. For 'delete': Identify the target plan from the retrieved tasks (indicated by '[System Retrieved]' in the conversation history) and use its exact 'plan_id'.\n"
+        "   - If deleting a specific plan, use its exact plan_id from the retrieved list. If not found, use the title or 'query:<title>'.\n"
         "   - If deleting ALL reminders, set plan_id to 'all'.\n"
         "   - If deleting reminders matching a keyword/item (e.g. 'cherry', 'fruit', 'meeting'), set plan_id to 'query:<keyword>' (e.g. 'query:cherry').\n"
         "4. For 'create_repeating': Use this action when a user requests a task to repeat periodically (e.g. 'everyday starting tomorrow at 8 am for next week' or 'every Monday'). Set 'frequency' to 'daily' or 'weekly' and 'repeat_count' to the number of occurrences requested (default: 7). Provide a base plan_id (e.g. 'plan_024') which will be used to generate sub-IDs (e.g. 'plan_024_1', 'plan_024_2').\n"
@@ -164,6 +199,7 @@ def run_executor(state: Dict[str, Any]) -> Dict[str, Any]:
             
         new_payload = json.loads(content)
         new_payload["validated"] = False  # Mark for validation
+        new_payload["attempts"] = attempts
         
         return {
             "task_payload": new_payload,
@@ -174,6 +210,7 @@ def run_executor(state: Dict[str, Any]) -> Dict[str, Any]:
         fallback_payload = dict(task_payload)
         fallback_payload["validated"] = False
         fallback_payload["errors"] = f"Failed to extract JSON parameters: {str(e)}"
+        fallback_payload["attempts"] = attempts
         return {
             "task_payload": fallback_payload,
             "next_agent": "critic"

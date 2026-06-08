@@ -9,6 +9,7 @@ from agents.execution import run_executor
 from agents.retrieval import run_retriever
 from agents.critic import run_critic
 from agents.responder import run_responder
+from agents.planner import run_planner
 
 # Define AgentState with conversation history, routing key, temporary payload, and system rules context
 class AgentState(TypedDict):
@@ -17,34 +18,62 @@ class AgentState(TypedDict):
     task_payload: Dict[str, Any]
     system_rules: str
 
+from tools.logger import log_node_start, log_node_end
+
 # Define individual node wrappers
 def supervisor_node(state: AgentState) -> Dict[str, Any]:
+    log_node_start("supervisor", state)
     result = run_supervisor(state["messages"], state.get("system_rules", ""))
-    return {
+    output = {
         "next_agent": result["next_agent"]
     }
+    log_node_end("supervisor", output)
+    return output
 
 def executor_node(state: AgentState) -> Dict[str, Any]:
-    return run_executor(state)
+    log_node_start("executor", state)
+    output = run_executor(state)
+    log_node_end("executor", output)
+    return output
 
 def retriever_node(state: AgentState) -> Dict[str, Any]:
-    return run_retriever(state)
+    log_node_start("retriever", state)
+    output = run_retriever(state)
+    log_node_end("retriever", output)
+    return output
 
 def critic_node(state: AgentState) -> Dict[str, Any]:
-    return run_critic(state)
+    log_node_start("critic", state)
+    output = run_critic(state)
+    log_node_end("critic", output)
+    return output
 
 def responder_node(state: AgentState) -> Dict[str, Any]:
-    return run_responder(state)
+    log_node_start("responder", state)
+    output = run_responder(state)
+    log_node_end("responder", output)
+    return output
+
+def planner_node(state: AgentState) -> Dict[str, Any]:
+    log_node_start("planner", state)
+    output = run_planner(state)
+    log_node_end("planner", output)
+    return output
 
 from agents.rule_manager import run_rule_manager
 def rule_manager_node(state: AgentState) -> Dict[str, Any]:
-    return run_rule_manager(state)
+    log_node_start("rule_manager", state)
+    output = run_rule_manager(state)
+    log_node_end("rule_manager", output)
+    return output
 
 # Define routing logic functions
 def supervisor_router(state: AgentState) -> str:
     next_agent = state.get("next_agent", "FINISH")
     if next_agent == "executor":
         return "executor"
+    elif next_agent == "planner":
+        return "planner"
     elif next_agent == "retriever":
         return "retriever"
     elif next_agent == "responder":
@@ -71,6 +100,7 @@ workflow.add_node("retriever", retriever_node)
 workflow.add_node("critic", critic_node)
 workflow.add_node("responder", responder_node)
 workflow.add_node("rule_manager", rule_manager_node)
+workflow.add_node("planner", planner_node)
 
 # Set Entry Edge
 workflow.add_edge(START, "supervisor")
@@ -81,6 +111,7 @@ workflow.add_conditional_edges(
     supervisor_router,
     {
         "executor": "executor",
+        "planner": "planner",
         "retriever": "retriever",
         "responder": "responder",
         "rule_manager": "rule_manager",
@@ -99,6 +130,7 @@ workflow.add_conditional_edges(
 )
 
 # Unconditional Edges
+workflow.add_edge("planner", "critic")
 workflow.add_edge("critic", "executor")
 workflow.add_edge("retriever", "supervisor")
 workflow.add_edge("responder", "supervisor")
