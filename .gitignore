@@ -51,3 +51,6 @@ server.log
 .env.local
 .env.*
 
+.graphifyignore
+graphify-out
+.agents
